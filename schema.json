@@ -1,0 +1,70 @@
+{
+  "project_name": "ITM-HR Management System",
+  "version": "2.0.0",
+  "architecture": "Mobile-First (PWA/React Native Compatible)",
+  "database": "Supabase / PostgreSQL",
+  "schema": {
+    "labourers": {
+      "description": "Stores employee profiles and current status",
+      "columns": [
+        { "name": "id", "type": "uuid", "constraints": "primary key, default gen_random_uuid()" },
+        { "name": "name", "type": "text", "constraints": "not null" },
+        { "name": "status", "type": "text", "constraints": "default 'Active' check (status in ('Active', 'Inactive'))" },
+        { "name": "position", "type": "text", "constraints": "nullable" },
+        { "name": "department", "type": "text", "constraints": "nullable" },
+        { "name": "created_at", "type": "timestamp with time zone", "constraints": "default now()" }
+      ]
+    },
+    "labourer_history": {
+      "description": "Tracks career progression (position/department changes)",
+      "columns": [
+        { "name": "id", "type": "uuid", "constraints": "primary key, default gen_random_uuid()" },
+        { "name": "labourer_id", "type": "uuid", "constraints": "references labourers(id) on delete cascade" },
+        { "name": "position", "type": "text", "constraints": "not null" },
+        { "name": "department", "type": "text", "constraints": "not null" },
+        { "name": "update_date", "type": "timestamp with time zone", "constraints": "default now()" }
+      ]
+    },
+    "payroll_records": {
+      "description": "Stores daily/weekly work logs and payment calculations",
+      "columns": [
+        { "name": "id", "type": "uuid", "constraints": "primary key, default gen_random_uuid()" },
+        { "name": "serial_no", "type": "text", "constraints": "nullable" },
+        { "name": "activity", "type": "text", "constraints": "not null" },
+        { "name": "duration", "type": "text", "constraints": "nullable" },
+        { "name": "name", "type": "text", "constraints": "not null" },
+        { "name": "working_hours", "type": "numeric", "constraints": "default 0" },
+        { "name": "total_days", "type": "numeric", "constraints": "default 0" },
+        { "name": "rate", "type": "numeric", "constraints": "default 0" },
+        { "name": "meal_allowance", "type": "numeric", "constraints": "default 0" },
+        { "name": "total", "type": "numeric", "constraints": "default 0" },
+        { "name": "net_pay", "type": "numeric", "constraints": "default 0" },
+        { "name": "advance", "type": "numeric", "constraints": "default 0" },
+        { "name": "balance", "type": "numeric", "constraints": "default 0" },
+        { "name": "signature", "type": "text", "constraints": "nullable (base64 or storage url)" },
+        { "name": "created_at", "type": "timestamp with time zone", "constraints": "default now()" }
+      ]
+    },
+    "budgets": {
+      "description": "Project-based budget allocation",
+      "columns": [
+        { "name": "id", "type": "uuid", "constraints": "primary key, default gen_random_uuid()" },
+        { "name": "activity", "type": "text", "constraints": "unique, not null" },
+        { "name": "total_budget", "type": "numeric", "constraints": "not null" }
+      ]
+    },
+    "attendance": {
+      "description": "QR-based attendance tracking with GPS",
+      "columns": [
+        { "name": "id", "type": "uuid", "constraints": "primary key, default gen_random_uuid()" },
+        { "name": "labourer_id", "type": "uuid", "constraints": "references labourers(id)" },
+        { "name": "name", "type": "text", "constraints": "not null" },
+        { "name": "check_in", "type": "timestamp with time zone", "constraints": "nullable" },
+        { "name": "check_out", "type": "timestamp with time zone", "constraints": "nullable" },
+        { "name": "actual_hours", "type": "numeric", "constraints": "default 0" },
+        { "name": "location", "type": "text", "constraints": "nullable (lat,lng)" },
+        { "name": "date", "type": "date", "constraints": "not null" }
+      ]
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "ITM-HR Payroll System",
+  "description": "A business management system for tracking work logs, payroll, and signatures with AI-powered image extraction.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
