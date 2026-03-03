@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Component } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   LayoutDashboard, 
@@ -23,13 +23,24 @@ import {
   LogIn,
   LogOut,
   QrCode,
-  Maximize
+  Maximize,
+  BarChart3
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { QRCodeCanvas } from 'qrcode.react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  Cell
+} from 'recharts';
 import { PayrollRecord, DashboardStats, Labourer, Budget, Attendance, LabourerHistory } from './types';
 import { SignaturePad } from './components/SignaturePad';
 import { extractPayrollFromImage } from './services/geminiService';
@@ -66,7 +77,53 @@ const QRScanner: React.FC<{ onScan: (id: string) => void; onClose: () => void }>
   );
 };
 
+class ErrorBoundary extends (Component as any) {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("Uncaught error:", error, errorInfo);
+  }
+
+  render() {
+    if ((this as any).state.hasError) {
+      return (
+        <div className="min-h-screen bg-zinc-50 flex items-center justify-center p-6">
+          <div className="max-w-md w-full bg-white p-8 rounded-[2.5rem] shadow-xl border border-zinc-200 text-center space-y-6">
+            <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto">
+              <AlertCircle size={40} className="text-red-500" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-2xl font-black">တစ်ခုခုမှားယွင်းနေပါသည်</h2>
+              <p className="text-zinc-500 font-medium">အက်ပ်ကို ပြန်လည်စတင်ရန် ကျေးဇူးပြု၍ Refresh လုပ်ပေးပါ။</p>
+            </div>
+            <button 
+              onClick={() => window.location.reload()}
+              className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-black hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100"
+            >
+              ပြန်လည်စတင်ရန် (Reload)
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (this as any).props.children;
+  }
+}
+
 const App: React.FC = () => {
+  return (
+    <ErrorBoundary>
+      <MainApp />
+    </ErrorBoundary>
+  );
+};
+
+const MainApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'records' | 'add' | 'labour' | 'budget' | 'attendance' | 'reports'>('dashboard');
   const [records, setRecords] = useState<PayrollRecord[]>([]);
   const [labourers, setLabourers] = useState<Labourer[]>([]);
@@ -84,41 +141,38 @@ const App: React.FC = () => {
   const [showQRModal, setShowQRModal] = useState<Labourer | null>(null);
   const [showScanner, setShowScanner] = useState(false);
 
-  const fetchData = async () => {
-    try {
-      const endpoints = [
-        '/api/records',
-        '/api/labourers',
-        '/api/budgets',
-        '/api/stats',
-        '/api/attendance/today'
-      ];
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
-      const responses = await Promise.all(endpoints.map(url => fetch(url)));
-      
-      for (const res of responses) {
-        if (!res.ok) {
-          const text = await res.text();
-          console.error(`API error for ${res.url}: ${res.status} ${text}`);
-          return;
-        }
-        const contentType = res.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          console.error(`Expected JSON for ${res.url}, got ${contentType}`);
-          return;
-        }
-      }
+  // Load from LocalStorage on mount
+  useEffect(() => {
+    const savedRecords = localStorage.getItem('itm_records');
+    const savedLabourers = localStorage.getItem('itm_labourers');
+    const savedBudgets = localStorage.getItem('itm_budgets');
+    const savedAttendance = localStorage.getItem('itm_attendance');
+    const savedStats = localStorage.getItem('itm_stats');
 
-      const [recData, labData, budData, statData, attData] = await Promise.all(responses.map(res => res.json()));
-      
-      setRecords(recData);
-      setLabourers(labData);
-      setBudgets(budData);
-      setStats(statData);
-      setAttendance(attData);
-    } catch (error) {
-      console.error("Failed to fetch data", error);
+    if (savedRecords) setRecords(JSON.parse(savedRecords));
+    if (savedLabourers) setLabourers(JSON.parse(savedLabourers));
+    if (savedBudgets) setBudgets(JSON.parse(savedBudgets));
+    if (savedAttendance) setAttendance(JSON.parse(savedAttendance));
+    if (savedStats) setStats(JSON.parse(savedStats));
+  }, []);
+
+  // Save to LocalStorage whenever state changes
+  useEffect(() => {
+    if (!isInitialLoading) {
+      localStorage.setItem('itm_records', JSON.stringify(records));
+      localStorage.setItem('itm_labourers', JSON.stringify(labourers));
+      localStorage.setItem('itm_budgets', JSON.stringify(budgets));
+      localStorage.setItem('itm_attendance', JSON.stringify(attendance));
+      if (stats) localStorage.setItem('itm_stats', JSON.stringify(stats));
     }
+  }, [records, labourers, budgets, attendance, stats, isInitialLoading]);
+
+  const fetchData = async () => {
+    // In frontend-only mode, data is already loaded from LocalStorage on mount.
+    // We just ensure isInitialLoading is set to false.
+    setIsInitialLoading(false);
   };
 
   useEffect(() => {
@@ -128,16 +182,18 @@ const App: React.FC = () => {
   const handleSaveRecord = async (record: PayrollRecord) => {
     setLoading(true);
     const isEdit = !!record.id;
-    const url = isEdit ? `/api/records/${record.id}` : '/api/records';
-    const method = isEdit ? 'PUT' : 'POST';
     
-    await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(record),
-    });
-    
-    await fetchData();
+    if (isEdit) {
+      setRecords(prev => prev.map(r => r.id === record.id ? record : r));
+    } else {
+      const newRecord = { 
+        ...record, 
+        id: Date.now().toString(),
+        created_at: new Date().toISOString() // Ensure created_at is set for reports
+      };
+      setRecords(prev => [newRecord, ...prev]);
+    }
+
     setLoading(false);
     setEditingRecord(null);
     setActiveTab('records');
@@ -145,8 +201,7 @@ const App: React.FC = () => {
 
   const handleDeleteRecord = async (id: string) => {
     if (!window.confirm('ဤမှတ်တမ်းကို ဖျက်ရန် သေချာပါသလား?')) return;
-    await fetch(`/api/records/${id}`, { method: 'DELETE' });
-    await fetchData();
+    setRecords(prev => prev.filter(r => r.id !== id));
   };
 
   const handleBulkDelete = async () => {
@@ -154,21 +209,9 @@ const App: React.FC = () => {
     if (!window.confirm(`ရွေးချယ်ထားသော မှတ်တမ်း (${selectedIds.length}) ခုကို ဖျက်ရန် သေချာပါသလား?`)) return;
     
     setLoading(true);
-    try {
-      await fetch('/api/records/bulk-delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: selectedIds }),
-      });
-      
-      setSelectedIds([]);
-      await fetchData();
-    } catch (error) {
-      console.error("Bulk delete failed", error);
-      alert("ဖျက်ရန် အဆင်မပြေပါ။ နောက်မှ ပြန်ကြိုးစားပါ။");
-    } finally {
-      setLoading(false);
-    }
+    setRecords(prev => prev.filter(r => !selectedIds.includes(r.id || '')));
+    setSelectedIds([]);
+    setLoading(false);
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -181,61 +224,70 @@ const App: React.FC = () => {
       const base64 = reader.result as string;
       const extracted = await extractPayrollFromImage(base64);
       
-      for (const record of extracted) {
-        await fetch('/api/records', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...record, id: Date.now().toString() + Math.random() }),
-        });
-      }
+      const now = new Date().toISOString();
+      const newRecords = extracted.map(record => ({
+        ...record,
+        id: Date.now().toString() + Math.random(),
+        created_at: now // Ensure created_at is set for reports
+      }));
       
-      await fetchData();
+      setRecords(prev => [...newRecords, ...prev]);
       setIsScanning(false);
       setActiveTab('records');
     };
     reader.readAsDataURL(file);
   };
 
-  const exportToExcel = async () => {
+  const handleExcelExport = async (dataToExport?: PayrollRecord[]) => {
+    const list = dataToExport || records;
+    if (!list || list.length === 0) {
+      alert('ထုတ်ယူရန် မှတ်တမ်းများ မရှိသေးပါ (No records to export)');
+      return;
+    }
     setIsExporting(true);
     try {
-      // Prepare budget summary data
-      const data = budgets.map(b => {
-        const status = budgetStatus[b.activity] || { spent: 0, budget: b.total_budget };
-        return {
-          'Project Name': b.activity,
-          'Total Budget': `${b.total_budget.toLocaleString()} MMK`,
-          'Total Spent': `${status.spent.toLocaleString()} MMK`,
-          'Remaining Balance': `${(b.total_budget - status.spent).toLocaleString()} MMK`
-        };
-      });
+      const data = list.map((r, index) => ({
+        'စဉ်': index + 1,
+        'အမည်': r.name || '',
+        'လုပ်ငန်း': r.activity || '',
+        'ကာလ': r.duration || '',
+        'နာရီ': r.working_hours || 0,
+        'ရက်ပေါင်း': r.total_days || 0,
+        'နှုန်းထား': r.rate || 0,
+        'စားစရိတ်': r.meal_allowance || 0,
+        'စုစုပေါင်း': r.total || 0,
+        'အသားတင်': r.net_pay || 0,
+        'ကြိုတင်': r.advance || 0,
+        'လက်ကျန်': r.balance || 0,
+        'ရက်စွဲ': r.created_at ? new Date(r.created_at).toLocaleDateString() : ''
+      }));
 
       const worksheet = XLSX.utils.json_to_sheet(data);
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Budget Summary");
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Payroll Records");
       
       // Auto-size columns
       const maxWidths = data.reduce((acc, row) => {
         Object.keys(row).forEach((key, i) => {
-          const val = row[key as keyof typeof row].toString();
+          const val = row[key as keyof typeof row]?.toString() || '';
           acc[i] = Math.max(acc[i] || 0, val.length, key.length);
         });
         return acc;
       }, [] as number[]);
       worksheet['!cols'] = maxWidths.map(w => ({ w: w + 2 }));
 
-      XLSX.writeFile(workbook, `ITM_Budget_Summary_${new Date().toISOString().split('T')[0]}.xlsx`);
+      XLSX.writeFile(workbook, `ITM_Payroll_Export_${new Date().toISOString().split('T')[0]}.xlsx`);
     } catch (error) {
       console.error("Excel export failed", error);
-      alert("Excel ထုတ်ယူရန် အဆင်မပြေပါ။");
+      alert("Excel ထုတ်ယူရန် အဆင်မပြေပါ။ (Excel export failed)");
     } finally {
       setIsExporting(false);
     }
   };
 
   const filteredRecords = records.filter(r => 
-    r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    r.activity.toLowerCase().includes(searchQuery.toLowerCase())
+    (r.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (r.activity || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const toggleSelect = (id: string) => {
@@ -258,11 +310,26 @@ const App: React.FC = () => {
     });
     records.forEach(r => {
       if (status[r.activity]) {
-        status[r.activity].spent += r.net_pay;
+        status[r.activity].spent += (r.net_pay || 0);
       }
     });
     return status;
   }, [budgets, records]);
+
+  const syncToCloud = async () => {
+    alert('Cloud Sync is not available in this frontend-only version.');
+  };
+
+  if (isInitialLoading) {
+    return (
+      <div className="min-h-screen bg-[#F5F5F4] flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Loader2 className="w-12 h-12 text-emerald-600 animate-spin mx-auto" />
+          <p className="text-zinc-500 font-bold">ITM-HR စနစ်ကို ဖွင့်နေပါသည်...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F5F5F4] text-zinc-900 font-sans">
@@ -330,7 +397,7 @@ const App: React.FC = () => {
                   <h2 className="text-4xl font-black tracking-tight">Dashboard</h2>
                   <p className="text-zinc-500 font-medium">လုပ်ငန်းအနှစ်ချုပ်နှင့် ဘတ်ဂျက်အခြေအနေ</p>
                 </div>
-                <button onClick={exportToExcel} className="flex items-center gap-2 px-6 py-3 bg-white border border-zinc-200 rounded-2xl text-sm font-bold hover:bg-zinc-50 transition-all shadow-sm">
+                <button onClick={handleExcelExport} className="flex items-center gap-2 px-6 py-3 bg-white border border-zinc-200 rounded-2xl text-sm font-bold hover:bg-zinc-50 transition-all shadow-sm">
                   <Download size={18} />
                   Excel ထုတ်ယူရန်
                 </button>
@@ -345,17 +412,48 @@ const App: React.FC = () => {
                 <StatCard label="ခွင့်တိုင်/ပျက်ကွက်" value={stats?.absent_count || 0} icon={<AlertCircle className="text-red-600" />} color="bg-red-50" />
               </div>
 
+              <div className="flex justify-end mb-4 gap-4">
+                <button 
+                  onClick={() => {
+                    if (window.confirm('Local Cache ကို ဖျက်ရန် သေချာပါသလား? (ဒေတာများ ဆုံးရှုံးနိုင်ပါသည်)')) {
+                      localStorage.clear();
+                      window.location.reload();
+                    }
+                  }}
+                  className="text-[10px] font-black text-zinc-400 uppercase tracking-widest hover:text-red-500 transition-all flex items-center gap-1"
+                >
+                  <Trash2 size={10} /> Clear Local Cache
+                </button>
+              </div>
+
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <section className="bg-white rounded-[2rem] p-8 shadow-sm border border-zinc-200">
+                  <h3 className="font-black text-xl mb-6 flex items-center gap-2">
+                    <BarChart3 className="text-emerald-600" />
+                    အသုံးစရိတ် ခွဲခြမ်းစိတ်ဖြာမှု (Spending Analysis)
+                  </h3>
+                  {budgets.length > 0 ? (
+                    <SpendingChart data={budgets.map(b => ({
+                      name: b.activity,
+                      spent: budgetStatus[b.activity]?.spent || 0
+                    }))} />
+                  ) : (
+                    <div className="h-80 flex items-center justify-center text-zinc-400 font-medium italic">
+                      ဒေတာမရှိသေးပါ (No Data Available)
+                    </div>
+                  )}
+                </section>
+
                 <section className="bg-white rounded-[2rem] p-8 shadow-sm border border-zinc-200">
                   <h3 className="font-black text-xl mb-6 flex items-center gap-2">
                     <Briefcase className="text-emerald-600" />
                     ဘတ်ဂျက်အခြေအနေ (Budget Status)
                   </h3>
                   <div className="space-y-6">
-                    {budgets.map(b => {
-                      const status = budgetStatus[b.activity] || { spent: 0, budget: b.total_budget };
+                    {(budgets || []).map(b => {
+                      const status = budgetStatus[b.activity] || { spent: 0, budget: b.total_budget || 0 };
                       const remaining = status.budget - status.spent;
-                      const percent = Math.min((status.spent / status.budget) * 100, 100);
+                      const percent = status.budget > 0 ? Math.min((status.spent / status.budget) * 100, 100) : 0;
                       const isOver = status.spent > status.budget;
                       return (
                         <div key={b.id} className="space-y-3 p-4 rounded-2xl bg-zinc-50 border border-zinc-100">
@@ -406,14 +504,14 @@ const App: React.FC = () => {
                 <section className="bg-white rounded-[2rem] p-8 shadow-sm border border-zinc-200">
                   <h3 className="font-black text-xl mb-6">လတ်တလော မှတ်တမ်းများ</h3>
                   <div className="space-y-4">
-                    {records.slice(0, 5).map(record => (
+                    {(records || []).slice(0, 5).map(record => (
                       <div key={record.id} className="flex items-center justify-between p-5 rounded-2xl bg-zinc-50 border border-zinc-100 group hover:border-emerald-200 transition-all">
                         <div>
                           <p className="font-bold text-zinc-900">{record.name}</p>
                           <p className="text-xs text-zinc-500 font-medium">{record.activity} • {record.duration}</p>
                         </div>
                         <div className="text-right">
-                          <p className="font-black text-emerald-600">{record.balance.toLocaleString()} MMK</p>
+                          <p className="font-black text-emerald-600">{(record.balance || 0).toLocaleString()} MMK</p>
                           <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Net Pay</p>
                         </div>
                       </div>
@@ -433,6 +531,13 @@ const App: React.FC = () => {
                   <p className="text-zinc-500 font-medium">မှတ်တမ်းများကို ရှာဖွေခြင်းနှင့် စီမံခန့်ခွဲခြင်း</p>
                 </div>
                 <div className="flex items-center gap-4">
+                  <button 
+                    onClick={() => handleExcelExport(filteredRecords)}
+                    className="flex items-center gap-2 px-6 py-3 bg-white border border-zinc-200 rounded-2xl text-sm font-bold hover:bg-zinc-50 transition-all shadow-sm"
+                  >
+                    <Download size={18} />
+                    Excel ထုတ်ယူရန်
+                  </button>
                   {selectedIds.length > 0 && (
                     <button 
                       onClick={handleBulkDelete}
@@ -500,8 +605,8 @@ const App: React.FC = () => {
                             </div>
                           </td>
                           <td className="px-6 py-5 text-sm font-bold text-zinc-600">{record.activity}</td>
-                          <td className="px-6 py-5 text-sm font-bold">{record.total.toLocaleString()} MMK</td>
-                          <td className="px-6 py-5 text-sm font-black text-emerald-600">{record.balance.toLocaleString()} MMK</td>
+                          <td className="px-6 py-5 text-sm font-bold">{(record.total || 0).toLocaleString()} MMK</td>
+                          <td className="px-6 py-5 text-sm font-black text-emerald-600">{(record.balance || 0).toLocaleString()} MMK</td>
                           <td className="px-6 py-5 text-right">
                             <div className="flex justify-end gap-2">
                               <button onClick={() => { setEditingRecord(record); setActiveTab('add'); }} className="p-2.5 text-blue-600 hover:bg-blue-50 rounded-xl transition-all">
@@ -577,23 +682,16 @@ const App: React.FC = () => {
                           disabled={!!record?.check_in}
                           onClick={async () => {
                             const now = new Date().toISOString();
-                            // Optimistic update
-                            setAttendance(prev => [...prev, {
-                              id: 'temp-' + Date.now(),
+                            const newEntry = {
+                              id: Date.now().toString(),
                               labourer_id: labourer.id,
                               name: labourer.name,
                               check_in: now,
                               check_out: null,
                               actual_hours: 0,
                               date: now.split('T')[0]
-                            }]);
-                            
-                            await fetch('/api/attendance/check-in', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ labourer_id: labourer.id, name: labourer.name })
-                            });
-                            fetchData();
+                            };
+                            setAttendance(prev => [...prev, newEntry]);
                           }}
                           className="flex-1 flex items-center justify-center gap-2 py-3 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition-all"
                         >
@@ -603,15 +701,15 @@ const App: React.FC = () => {
                           disabled={!record?.check_in || !!record?.check_out}
                           onClick={async () => {
                             const now = new Date().toISOString();
-                            // Optimistic update
-                            setAttendance(prev => prev.map(a => a.labourer_id === labourer.id ? { ...a, check_out: now } : a));
-                            
-                            await fetch('/api/attendance/check-out', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ labourer_id: labourer.id })
-                            });
-                            fetchData();
+                            setAttendance(prev => prev.map(a => {
+                              if (a.labourer_id === labourer.id && !a.check_out) {
+                                const checkIn = new Date(a.check_in);
+                                const checkOut = new Date(now);
+                                const diff = (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60);
+                                return { ...a, check_out: now, actual_hours: diff };
+                              }
+                              return a;
+                            }));
                           }}
                           className="flex-1 flex items-center justify-center gap-2 py-3 bg-orange-600 text-white rounded-xl text-xs font-bold hover:bg-orange-700 disabled:opacity-50 transition-all"
                         >
@@ -648,8 +746,7 @@ const App: React.FC = () => {
                               <button 
                                 onClick={async () => {
                                   if (!window.confirm('ဤတက်ရောက်မှုမှတ်တမ်းကို ဖျက်ရန် သေချာပါသလား?')) return;
-                                  await fetch(`/api/attendance/${record.id}`, { method: 'DELETE' });
-                                  fetchData();
+                                  setAttendance(prev => prev.filter(a => a.id !== record.id));
                                 }}
                                 className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition-all"
                               >
@@ -686,6 +783,7 @@ const App: React.FC = () => {
                 loading={loading}
                 labourers={labourers.filter(l => l.status === 'Active')}
                 budgets={budgets}
+                attendance={attendance}
               />
             </motion.div>
           )}
@@ -696,7 +794,12 @@ const App: React.FC = () => {
                 <h2 className="text-4xl font-black tracking-tight">ဝန်ထမ်းစာရင်း</h2>
                 <p className="text-zinc-500 font-medium">ဝန်ထမ်းများ စီမံခန့်ခွဲခြင်း</p>
               </header>
-              <LabourManager labourers={labourers} onUpdate={fetchData} onShowQR={(l) => setShowQRModal(l)} />
+              <LabourManager 
+                labourers={labourers} 
+                setLabourers={setLabourers}
+                onUpdate={fetchData} 
+                onShowQR={(l) => setShowQRModal(l)} 
+              />
             </motion.div>
           )}
 
@@ -706,7 +809,12 @@ const App: React.FC = () => {
                 <h2 className="text-4xl font-black tracking-tight">ဘတ်ဂျက်သတ်မှတ်ရန်</h2>
                 <p className="text-zinc-500 font-medium">လုပ်ငန်းအလိုက် ဘတ်ဂျက်များ သတ်မှတ်ခြင်း</p>
               </header>
-              <BudgetManager budgets={budgets} records={records} onUpdate={fetchData} />
+              <BudgetManager 
+                budgets={budgets} 
+                setBudgets={setBudgets}
+                records={records} 
+                onUpdate={fetchData} 
+              />
             </motion.div>
           )}
 
@@ -726,36 +834,48 @@ const App: React.FC = () => {
             onScan={async (decodedText) => {
               let labourerId = decodedText;
               try {
-                // Try to parse as JSON if it contains name and id
                 const data = JSON.parse(decodedText);
                 if (data.id) labourerId = data.id;
-              } catch (e) {
-                // Not JSON, assume it's just the ID
+              } catch (e) {}
+
+              const labourer = labourers.find(l => l.id === labourerId);
+              if (!labourer) {
+                alert('ဝန်ထမ်း ရှာမတွေ့ပါ');
+                return;
               }
 
-              let location = 'Unknown';
-              try {
-                const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-                  navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
-                });
-                location = `${pos.coords.latitude}, ${pos.coords.longitude}`;
-              } catch (e) {
-                console.warn("Location access denied or timed out");
-              }
+              const now = new Date().toISOString();
+              const today = now.split('T')[0];
+              const existing = attendance.find(a => a.labourer_id === labourerId && a.date === today);
 
-              const res = await fetch('/api/attendance/scan', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ labourer_id: labourerId, location })
-              });
-              const data = await res.json();
-              if (res.ok) {
-                alert(`${data.name} - ${data.type === 'check-in' ? 'အလုပ်ဝင်ချိန် မှတ်တမ်းတင်ပြီး' : 'အလုပ်ထွက်ချိန် မှတ်တမ်းတင်ပြီး'}\nတည်နေရာ: ${location}`);
+              if (!existing) {
+                // Check in
+                setAttendance(prev => [...prev, {
+                  id: Date.now().toString(),
+                  labourer_id: labourer.id,
+                  name: labourer.name,
+                  check_in: now,
+                  check_out: null,
+                  actual_hours: 0,
+                  date: today
+                }]);
+                alert(`${labourer.name} - အလုပ်ဝင်ချိန် မှတ်တမ်းတင်ပြီး`);
+              } else if (!existing.check_out) {
+                // Check out
+                setAttendance(prev => prev.map(a => {
+                  if (a.id === existing.id) {
+                    const checkIn = new Date(a.check_in);
+                    const checkOut = new Date(now);
+                    const diff = (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60);
+                    return { ...a, check_out: now, actual_hours: diff };
+                  }
+                  return a;
+                }));
+                alert(`${labourer.name} - အလုပ်ထွက်ချိန် မှတ်တမ်းတင်ပြီး`);
               } else {
-                alert(data.error || 'အမှားအယွင်းရှိပါသည်');
+                alert('ယနေ့အတွက် အလုပ်ဝင်/ထွက် မှတ်တမ်းတင်ပြီးသားဖြစ်ပါသည်');
               }
               setShowScanner(false);
-              fetchData();
             }} 
             onClose={() => setShowScanner(false)} 
           />
@@ -825,6 +945,49 @@ const NavItem: React.FC<{ active: boolean; onClick: () => void; icon: React.Reac
   </button>
 );
 
+const SpendingChart: React.FC<{ data: any[] }> = ({ data }) => (
+  <div className="h-80 w-full">
+    {(!data || data.length === 0) ? (
+      <div className="h-full flex items-center justify-center text-zinc-400 font-medium italic">
+        ဒေတာမရှိသေးပါ (No Data Available)
+      </div>
+    ) : (
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+          <XAxis 
+            dataKey="name" 
+            axisLine={false} 
+            tickLine={false} 
+            tick={{ fill: '#94a3b8', fontSize: 10 }}
+          />
+          <YAxis 
+            axisLine={false} 
+            tickLine={false} 
+            tick={{ fill: '#94a3b8', fontSize: 10 }}
+            tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
+          />
+          <Tooltip 
+            cursor={{ fill: '#f8fafc' }}
+            contentStyle={{ 
+              borderRadius: '1rem', 
+              border: 'none', 
+              boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+              fontSize: '12px',
+              fontWeight: 'bold'
+            }}
+          />
+          <Bar dataKey="spent" radius={[4, 4, 0, 0]}>
+            {data.map((entry, index) => (
+              <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#10b981' : '#3b82f6'} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    )}
+  </div>
+);
+
 const StatCard: React.FC<{ label: string; value: string | number; icon: React.ReactNode; color: string }> = ({ label, value, icon, color }) => (
   <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-zinc-200 flex flex-col gap-6 hover:shadow-md transition-all">
     <div className={`w-14 h-14 rounded-2xl ${color} flex items-center justify-center shadow-inner`}>
@@ -837,7 +1000,14 @@ const StatCard: React.FC<{ label: string; value: string | number; icon: React.Re
   </div>
 );
 
-const RecordForm: React.FC<{ initialData?: PayrollRecord; onSave: (data: PayrollRecord) => void; loading: boolean; labourers: Labourer[]; budgets: Budget[] }> = ({ initialData, onSave, loading, labourers, budgets }) => {
+const RecordForm: React.FC<{ 
+  initialData?: PayrollRecord; 
+  onSave: (data: PayrollRecord) => void; 
+  loading: boolean; 
+  labourers: Labourer[]; 
+  budgets: Budget[];
+  attendance: Attendance[];
+}> = ({ initialData, onSave, loading, labourers, budgets, attendance }) => {
   const [formData, setFormData] = useState<PayrollRecord>(initialData || {
     id: '',
     serial_no: '',
@@ -867,10 +1037,14 @@ const RecordForm: React.FC<{ initialData?: PayrollRecord; onSave: (data: Payroll
     const { name, value, type } = e.target;
     
     if (name === 'name' && value) {
-      const res = await fetch(`/api/attendance/hours/${encodeURIComponent(value)}`);
-      const data = await res.json();
-      if (data.hours > 0) {
-        setFormData(prev => ({ ...prev, name: value, working_hours: data.hours }));
+      const labourer = labourers.find(l => l.name === value);
+      const today = new Date().toISOString().split('T')[0];
+      const att = attendance.find(a => a.labourer_id === labourer?.id && a.date === today);
+      
+      const hours = att?.actual_hours || 0;
+      
+      if (hours > 0) {
+        setFormData(prev => ({ ...prev, name: value, working_hours: hours }));
         setAttendanceWarning('');
       } else {
         setFormData(prev => ({ ...prev, name: value, working_hours: 0 }));
@@ -965,7 +1139,12 @@ const RecordForm: React.FC<{ initialData?: PayrollRecord; onSave: (data: Payroll
   );
 };
 
-const LabourManager: React.FC<{ labourers: Labourer[]; onUpdate: () => void; onShowQR: (l: Labourer) => void }> = ({ labourers, onUpdate, onShowQR }) => {
+const LabourManager: React.FC<{ 
+  labourers: Labourer[]; 
+  setLabourers: React.Dispatch<React.SetStateAction<Labourer[]>>;
+  onUpdate: () => void; 
+  onShowQR: (l: Labourer) => void 
+}> = ({ labourers, setLabourers, onUpdate, onShowQR }) => {
   const [name, setName] = useState('');
   const [status, setStatus] = useState<'Active' | 'Inactive'>('Active');
   const [position, setPosition] = useState('');
@@ -976,11 +1155,18 @@ const LabourManager: React.FC<{ labourers: Labourer[]; onUpdate: () => void; onS
 
   const handleAdd = async () => {
     if (!name) return;
-    await fetch('/api/labourers', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, status, position, department }),
-    });
+    
+    const existing = labourers.find(l => l.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      if (!window.confirm(`ဝန်ထမ်းအမည် (${name}) ရှိပြီးသားဖြစ်ပါသည်။ ထပ်ထည့်မလား?`)) return;
+    }
+
+    const newLabourer = { name, status, position, department, id: Date.now().toString() };
+    setLabourers(prev => [...prev, newLabourer]);
+    
+    // In frontend-only mode, we can't easily store history in a separate table without more logic,
+    // but we can at least update the local state.
+    
     setName('');
     setPosition('');
     setDepartment('');
@@ -990,34 +1176,28 @@ const LabourManager: React.FC<{ labourers: Labourer[]; onUpdate: () => void; onS
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingLabour) return;
-    await fetch(`/api/labourers/${editingLabour.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(editingLabour),
-    });
+    
+    setLabourers(prev => prev.map(l => l.id === editingLabour.id ? editingLabour : l));
     setEditingLabour(null);
     onUpdate();
   };
 
   const fetchHistory = async (labourer: Labourer) => {
-    const res = await fetch(`/api/labourers/${labourer.id}/history`);
-    const data = await res.json();
-    setHistoryData(data);
+    // Mock history for frontend-only mode or implement local history tracking
+    setHistoryData([]);
     setShowHistory(labourer);
   };
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('ဖျက်ရန် သေချာပါသလား?')) return;
-    await fetch(`/api/labourers/${id}`, { method: 'DELETE' });
+    setLabourers(prev => prev.filter(l => l.id !== id));
     onUpdate();
   };
 
   const toggleStatus = async (labourer: Labourer) => {
-    await fetch(`/api/labourers/${labourer.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...labourer, status: labourer.status === 'Active' ? 'Inactive' : 'Active' }),
-    });
+    const newStatus = labourer.status === 'Active' ? 'Inactive' : 'Active';
+    const updated = { ...labourer, status: newStatus };
+    setLabourers(prev => prev.map(item => item.id === labourer.id ? updated : item));
     onUpdate();
   };
 
@@ -1193,7 +1373,12 @@ const LabourManager: React.FC<{ labourers: Labourer[]; onUpdate: () => void; onS
   );
 };
 
-const BudgetManager: React.FC<{ budgets: Budget[]; records: PayrollRecord[]; onUpdate: () => void }> = ({ budgets, records, onUpdate }) => {
+const BudgetManager: React.FC<{ 
+  budgets: Budget[]; 
+  setBudgets: React.Dispatch<React.SetStateAction<Budget[]>>;
+  records: PayrollRecord[]; 
+  onUpdate: () => void 
+}> = ({ budgets, setBudgets, records, onUpdate }) => {
   const [activity, setActivity] = useState('');
   const [total, setTotal] = useState(0);
 
@@ -1204,7 +1389,7 @@ const BudgetManager: React.FC<{ budgets: Budget[]; records: PayrollRecord[]; onU
     });
     records.forEach(r => {
       if (status[r.activity]) {
-        status[r.activity].spent += r.net_pay;
+        status[r.activity].spent += (r.net_pay || 0);
       }
     });
     return status;
@@ -1212,11 +1397,23 @@ const BudgetManager: React.FC<{ budgets: Budget[]; records: PayrollRecord[]; onU
 
   const handleAdd = async () => {
     if (!activity) return;
-    await fetch('/api/budgets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ activity, total_budget: total }),
-    });
+    
+    // Check for duplicate activity
+    const existing = budgets.find(b => b.activity.toLowerCase() === activity.toLowerCase());
+    let updatedBudgets: Budget[];
+    
+    if (existing) {
+      if (!window.confirm(`ဤလုပ်ငန်း (${activity}) အတွက် ဘတ်ဂျက်ရှိပြီးသားဖြစ်ပါသည်။ အသစ်ဖြင့် အစားထိုးမလား?`)) return;
+      const updatedBudget = { ...existing, total_budget: total };
+      updatedBudgets = budgets.map(b => b.id === existing.id ? updatedBudget : b);
+    } else {
+      const newBudget = { activity, total_budget: total, id: Date.now().toString() };
+      updatedBudgets = [...budgets, newBudget];
+    }
+    
+    // Explicitly save to LocalStorage as requested
+    localStorage.setItem('itm_budgets', JSON.stringify(updatedBudgets));
+    setBudgets(updatedBudgets);
     setActivity('');
     setTotal(0);
     onUpdate();
@@ -1224,7 +1421,7 @@ const BudgetManager: React.FC<{ budgets: Budget[]; records: PayrollRecord[]; onU
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('ဖျက်ရန် သေချာပါသလား?')) return;
-    await fetch(`/api/budgets/${id}`, { method: 'DELETE' });
+    setBudgets(prev => prev.filter(b => b.id !== id));
     onUpdate();
   };
 
@@ -1260,7 +1457,7 @@ const BudgetManager: React.FC<{ budgets: Budget[]; records: PayrollRecord[]; onU
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {budgets.map(b => {
-          const status = budgetStatus[b.activity] || { spent: 0, budget: b.total_budget };
+          const status = budgetStatus[b.activity] || { spent: 0, budget: b.total_budget || 0 };
           const remaining = status.budget - status.spent;
           const isOver = status.spent > status.budget;
           
@@ -1319,16 +1516,20 @@ const ReportManager: React.FC<{ records: PayrollRecord[]; attendance: Attendance
 
     return {
       filtered,
-      total_spent: filtered.reduce((sum, r) => sum + r.net_pay, 0),
-      total_advance: filtered.reduce((sum, r) => sum + r.advance, 0),
-      total_balance: filtered.reduce((sum, r) => sum + r.balance, 0),
+      total_spent: filtered.reduce((sum, r) => sum + (r.net_pay || 0), 0),
+      total_advance: filtered.reduce((sum, r) => sum + (r.advance || 0), 0),
+      total_balance: filtered.reduce((sum, r) => sum + (r.balance || 0), 0),
       present_count: attFiltered.length,
       records_count: filtered.length,
       activities: Array.from(new Set(filtered.map(r => r.activity)))
     };
   }, [reportType, selectedDate, selectedMonth, records, attendance]);
 
-  const generatePDF = async () => {
+  const handlePDFExport = async () => {
+    if (!reportData.filtered || reportData.filtered.length === 0) {
+      alert('ထုတ်ယူရန် မှတ်တမ်းများ မရှိသေးပါ (No records to export)');
+      return;
+    }
     setIsExporting(true);
     try {
       const doc = new jsPDF();
@@ -1337,19 +1538,25 @@ const ReportManager: React.FC<{ records: PayrollRecord[]; attendance: Attendance
       try {
         const fontUrl = 'https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@master/hinted/ttf/NotoSansMyanmar/NotoSansMyanmar-Regular.ttf';
         const response = await fetch(fontUrl);
-        const buffer = await response.arrayBuffer();
-        const base64 = btoa(
-          new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-        );
-        doc.addFileToVFS('NotoSansMyanmar.ttf', base64);
-        doc.addFont('NotoSansMyanmar.ttf', 'NotoSansMyanmar', 'normal');
-        doc.setFont('NotoSansMyanmar');
+        if (response.ok) {
+          const buffer = await response.arrayBuffer();
+          // Use a more robust way to convert array buffer to base64
+          let binary = '';
+          const bytes = new Uint8Array(buffer);
+          const len = bytes.byteLength;
+          for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          const base64 = btoa(binary);
+          
+          doc.addFileToVFS('NotoSansMyanmar.ttf', base64);
+          doc.addFont('NotoSansMyanmar.ttf', 'NotoSansMyanmar', 'normal');
+          doc.setFont('NotoSansMyanmar');
+        }
       } catch (e) {
         console.warn("Failed to load Myanmar font, falling back to standard font", e);
       }
 
-      const title = reportType === 'daily' ? `Daily Report - ${selectedDate}` : `Monthly Report - ${selectedMonth}`;
-      
       // Header & Logo
       doc.setFontSize(24);
       doc.setTextColor(5, 150, 105); // Emerald-600
@@ -1368,56 +1575,39 @@ const ReportManager: React.FC<{ records: PayrollRecord[]; attendance: Attendance
       
       doc.setFontSize(12);
       doc.setTextColor(0);
-      doc.text(`စုစုပေါင်း အသုံးစရိတ်: ${reportData.total_spent.toLocaleString()} MMK`, 14, 60);
-      doc.text(`စုစုပေါင်း ကြိုတင်ငွေ: ${reportData.total_advance.toLocaleString()} MMK`, 14, 67);
-      doc.text(`စုစုပေါင်း လက်ကျန်: ${reportData.total_balance.toLocaleString()} MMK`, 14, 74);
+      // Ensure font is applied to summary text too
+      doc.setFont('NotoSansMyanmar');
+      doc.text(`စုစုပေါင်း အသုံးစရိတ်: ${(reportData.total_spent || 0).toLocaleString()} MMK`, 14, 60);
+      doc.text(`စုစုပေါင်း ကြိုတင်ငွေ: ${(reportData.total_advance || 0).toLocaleString()} MMK`, 14, 67);
+      doc.text(`စုစုပေါင်း လက်ကျန်: ${(reportData.total_balance || 0).toLocaleString()} MMK`, 14, 74);
 
       // Table
       const tableData = reportData.filtered.map((r, index) => [
         index + 1,
-        r.name,
-        r.activity,
-        `${r.working_hours} hrs`,
-        `${r.rate.toLocaleString()} MMK`,
-        `${r.net_pay.toLocaleString()} MMK`,
-        r.signature ? '' : 'No Sig'
+        r.name || '',
+        r.activity || '',
+        `${r.working_hours || 0} hrs`,
+        `${(r.rate || 0).toLocaleString()} MMK`,
+        `${(r.net_pay || 0).toLocaleString()} MMK`,
+        `${(r.advance || 0).toLocaleString()} MMK`,
+        `${(r.balance || 0).toLocaleString()} MMK`
       ]);
 
       autoTable(doc, {
         startY: 85,
-        head: [['စဉ်', 'အမည်', 'လုပ်ငန်း', 'နာရီ', 'နှုန်း', 'ပေါင်း', 'လက်မှတ်']],
+        head: [['စဉ်', 'အမည်', 'လုပ်ငန်း', 'နာရီ', 'နှုန်း', 'စုစုပေါင်း', 'ကြိုတင်', 'လက်ကျန်']],
         body: tableData,
-        theme: 'grid',
-        headStyles: { 
-          fillColor: [5, 150, 105],
-          font: 'NotoSansMyanmar',
-          fontStyle: 'normal'
-        },
-        styles: {
-          font: 'NotoSansMyanmar',
-          fontStyle: 'normal'
-        },
-        didDrawCell: (data) => {
-          if (data.section === 'body' && data.column.index === 6) {
-            const record = reportData.filtered[data.row.index];
-            if (record.signature) {
-              try {
-                doc.addImage(record.signature, 'PNG', data.cell.x + 2, data.cell.y + 2, 16, 10);
-              } catch (e) {
-                console.error("Failed to add signature image", e);
-              }
-            }
-          }
-        },
-        columnStyles: {
-          6: { cellWidth: 25 }
-        }
+        styles: { font: 'NotoSansMyanmar', fontSize: 9 },
+        headStyles: { fillColor: [5, 150, 105], font: 'NotoSansMyanmar' },
+        alternateRowStyles: { fillColor: [245, 250, 248] },
+        // Ensure font is applied to all parts of the table
+        theme: 'grid'
       });
 
-      doc.save(`ITM_Report_${reportType}_${new Date().toISOString().split('T')[0]}.pdf`);
+      doc.save(`ITM_Payroll_Report_${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (error) {
       console.error("PDF generation failed", error);
-      alert("PDF ထုတ်ယူရန် အဆင်မပြေပါ။");
+      alert("PDF ထုတ်ယူရန် အဆင်မပြေပါ။ (PDF export failed)");
     } finally {
       setIsExporting(false);
     }
@@ -1457,7 +1647,7 @@ const ReportManager: React.FC<{ records: PayrollRecord[]; attendance: Attendance
         </div>
 
         <button 
-          onClick={generatePDF}
+          onClick={handlePDFExport}
           className="px-8 py-4 bg-zinc-900 text-white rounded-2xl font-black hover:bg-black transition-all shadow-lg flex items-center gap-2 h-[60px]"
         >
           <Download size={20} /> PDF ထုတ်ယူရန်
